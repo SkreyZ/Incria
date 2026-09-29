@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { checkCommand, checkPath } from "./guard.mjs";
 
-const blocked = (cmd, branch = "claude/feature-x") => checkCommand(cmd, branch) !== null;
+// Résolveur factice : PR 12 et branche feat/x -> dev, PR 99 -> main, sinon inconnue.
+const fakeBase = (target) => ({ "12": "dev", "feat/x": "dev", "99": "main" })[target ?? "feat/x"] ?? null;
+const blocked = (cmd, branch = "claude/feature-x") => checkCommand(cmd, branch, fakeBase) !== null;
 
 describe("guard: git push", () => {
   it("autorise le push de la branche claude/* courante", () => {
@@ -42,15 +44,28 @@ describe("guard: commit / branches", () => {
 });
 
 describe("guard: gh", () => {
-  it("bloque merge, workflow run, release", () => {
-    expect(blocked("gh pr merge 12 --squash")).toBe(true);
+  it("autorise le merge d'une PR vers dev", () => {
+    expect(blocked("gh pr merge 12 --squash --delete-branch")).toBe(false);
+    expect(blocked("gh pr merge --squash")).toBe(false); // PR de la branche courante
+    expect(blocked('gh pr merge 12 --squash --subject "feat: grille"')).toBe(false);
+  });
+  it("bloque le merge vers main, inconnu, ou en --admin", () => {
+    expect(blocked("gh pr merge 99 --squash")).toBe(true);
+    expect(blocked("gh pr merge 123 --merge")).toBe(true);
+    expect(blocked("gh pr merge 12 --squash --admin")).toBe(true);
+  });
+  it("bloque workflow run, release, merge par l'API", () => {
     expect(blocked("gh workflow run deploy-prod.yml")).toBe(true);
     expect(blocked("gh release create v1")).toBe(true);
     expect(blocked("gh api -X PUT repos/o/r/pulls/3/merge")).toBe(true);
   });
-  it("n'autorise que les PR vers dev", () => {
+  it("PR vers dev, ou vers main uniquement depuis dev", () => {
     expect(blocked('gh pr create --base dev --title "x" --body "y"')).toBe(false);
+    expect(blocked('gh pr create --base main --head dev --title "Release"')).toBe(false);
+    expect(blocked('gh pr create --base=main --head=dev --fill')).toBe(false);
     expect(blocked('gh pr create --base main --title "x"')).toBe(true);
+    expect(blocked('gh pr create --base main --head feat/x')).toBe(true);
+    expect(blocked('gh pr create --base staging')).toBe(true);
     expect(blocked('gh pr create --title "x"')).toBe(true);
   });
   it("laisse passer les commandes de lecture", () => {
@@ -72,6 +87,8 @@ describe("guard: fichiers protégés", () => {
     expect(checkPath("/repo/.claude/settings.json", dir) !== null).toBe(true);
     expect(checkPath(".claude/hooks/guard.mjs", dir) !== null).toBe(true);
     expect(checkPath("/repo/.github/workflows/deploy-prod.yml", dir) !== null).toBe(true);
+    expect(checkPath("/repo/.github/workflows/pilot.yml", dir) !== null).toBe(true);
+    expect(checkPath("/repo/.github/workflows/claude-ci-fix.yml", dir) !== null).toBe(true);
     expect(checkPath("/repo/.github/CODEOWNERS", dir) !== null).toBe(true);
     expect(checkPath("/repo/scripts/deploy.sh", dir) !== null).toBe(true);
   });

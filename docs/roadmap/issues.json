@@ -1,0 +1,323 @@
+{
+  "milestones": [
+    {
+      "key": "M1",
+      "title": "Jalon 1 — Prototype solo",
+      "description": "Carte + croissance + économie dans le navigateur, sans serveur. Critère : c'est agréable à regarder pendant 5 minutes."
+    },
+    {
+      "key": "M2",
+      "title": "Jalon 2 — Serveur autoritaire",
+      "description": "Comptes pseudo + mot de passe, sauvegarde, calcul hors ligne, actions validées côté serveur."
+    },
+    {
+      "key": "M3",
+      "title": "Jalon 3 — Multijoueur",
+      "description": "Ligue de 30 sur une carte partagée : brouillard, frontières, zone de base, émoticônes, temps réel."
+    },
+    {
+      "key": "M4",
+      "title": "Jalon 4 — Saison complète",
+      "description": "Score, reset du lundi, spores, mutations, déploiement OVH. Test sur une vraie semaine."
+    },
+    {
+      "key": "M5",
+      "title": "Jalon 5 — Polish et mobile",
+      "description": "Mobile, mutateurs hebdo, paliers de ligue, son, arbres-mères."
+    }
+  ],
+  "issues": [
+    {
+      "id": "M1-01",
+      "milestone": "M1",
+      "labels": [
+        "core"
+      ],
+      "title": "[core] Grille hexagonale (coordonnées axiales)",
+      "body": "## Objectif\nBase géométrique de la carte : hexagones pointe en haut, coordonnées axiales (q, r).\n\n## Critères d'acceptation\n- [ ] Clé texte stable `q,r` et conversion inverse\n- [ ] 6 voisins, distance, anneau de rayon n, spirale (tous les hex à distance <= n)\n- [ ] Conversion hex <-> pixel (pour le rendu) avec arrondi correct\n- [ ] Une spirale de rayon 2 contient 19 hex (taille de la zone de base)\n- [ ] Tests vitest",
+      "status": "done"
+    },
+    {
+      "id": "M1-02",
+      "milestone": "M1",
+      "labels": [
+        "core"
+      ],
+      "title": "[core] Générateur pseudo-aléatoire à graine",
+      "body": "## Objectif\nTout l'aléatoire du jeu doit être reproductible : même graine = même résultat, côté client comme côté serveur.\n\n## Critères d'acceptation\n- [ ] Graine texte ou nombre\n- [ ] `next()` dans [0, 1), `int(min, max)`, `chance(p)`, `pick(tableau)`, `shuffle(tableau)`\n- [ ] Aucune utilisation de `Math.random` dans `packages/core`\n- [ ] Tests : reproductibilité, bornes, distribution grossièrement uniforme",
+      "status": "done"
+    },
+    {
+      "id": "M1-03",
+      "milestone": "M1",
+      "labels": [
+        "core"
+      ],
+      "title": "[core] Génération de la carte hebdo à partir d'une graine",
+      "body": "## Objectif\nGénérer la forêt d'une ligue : ~50 hex par joueur, types humus / bois mort / mousse / rocher, points de départ équitables.\n\n## Règles\n- Rochers en petits amas, bois mort plus fréquent vers le centre, mousse en plaques\n- Aucune poche isolée : toutes les tuiles praticables sont reliées\n- Zone de base (spore + 2 anneaux = 19 tuiles) identique pour tous : humus + 1 bois mort + 1 mousse, jamais de rocher\n- Zones de base qui ne se chevauchent pas\n\n## Critères d'acceptation\n- [ ] `generateMap({ seed, players })` déterministe\n- [ ] Tests : déterminisme, nombre de spawns, distances entre spawns, connexité, proportions de terrain\n- [ ] Test de non-régression : empreinte fixe de la carte pour une graine de référence",
+      "status": "done"
+    },
+    {
+      "id": "M1-04",
+      "milestone": "M1",
+      "labels": [
+        "core"
+      ],
+      "title": "[core] Économie : production par tuile et biomasse",
+      "body": "## Objectif\nNutriments et eau produits par les tuiles colonisées, biomasse produite à partir des deux.\n\n## Critères d'acceptation\n- [ ] Rendement par type de tuile (table de constantes)\n- [ ] `advance(state, secondes)` pur et déterministe : l'appeler une fois avec 3600 s ou 60 fois avec 60 s donne le même résultat (à l'arrondi près)\n- [ ] Rattrapage hors ligne plafonné (ex. 24 h max)\n- [ ] Le bois mort s'épuise (~2 jours)\n- [ ] Tests",
+      "status": "done"
+    },
+    {
+      "id": "M1-05",
+      "milestone": "M1",
+      "labels": [
+        "core"
+      ],
+      "title": "[core] Améliorations et coûts",
+      "body": "## Objectif\nAméliorations achetables avec les nutriments (production, vitesse de croissance, stockage d'eau).\n\n## Critères d'acceptation\n- [ ] Coût `C0 * g^n` (g ≈ 1,15) et coût d'achat groupé en formule fermée\n- [ ] Achat refusé si ressources insuffisantes\n- [ ] Tests",
+      "status": "done"
+    },
+    {
+      "id": "M1-06",
+      "milestone": "M1",
+      "labels": [
+        "core"
+      ],
+      "title": "[core] Croissance des filaments",
+      "body": "## Objectif\nLe réseau s'étend tuile par tuile, dans les directions données par le joueur, ou seul en mode idle.\n\n## Règles\n- Coût d'une tuile : `B0 * (1 + 0,08 k)^1,5` (k = tuiles possédées)\n- Vitesse selon l'eau disponible\n- Sans direction : pousse vers la tuile voisine la plus rentable\n- Rochers infranchissables\n\n## Critères d'acceptation\n- [ ] Intégré à `advance()`\n- [ ] Tests (coût, adjacence, rochers, mode idle)",
+      "status": "done"
+    },
+    {
+      "id": "M1-07",
+      "milestone": "M1",
+      "labels": [
+        "core"
+      ],
+      "title": "[core] Brouillard : tuiles visibles depuis un réseau",
+      "body": "## Critères d'acceptation\n- [ ] `visibleTiles(network, rayon)` : tuiles à distance <= rayon d'une tuile possédée\n- [ ] Tuiles déjà découvertes gardées en mémoire (terrain visible, voisins non)\n- [ ] Tests",
+      "status": "done"
+    },
+    {
+      "id": "M1-08",
+      "milestone": "M1",
+      "labels": [
+        "web"
+      ],
+      "title": "[web] Initialiser apps/web (Vite + TypeScript)",
+      "body": "## Critères d'acceptation\n- [ ] `apps/web` avec Vite + TS, importe `@game/core`\n- [ ] `npm run build` et `npm run lint` passent à la racine (CI verte)\n- [ ] Page de base sur fond #0E0B0A"
+    },
+    {
+      "id": "M1-09",
+      "milestone": "M1",
+      "labels": [
+        "web"
+      ],
+      "title": "[web] Rendu Canvas de la carte + déplacement / zoom",
+      "body": "## Objectif\nAfficher la carte générée avec la DA bioluminescente (voir spec).\n\n## Critères d'acceptation\n- [ ] Rendu Canvas 2D des hex par type de tuile\n- [ ] Réseau du joueur en cyan #5CF2E0, filaments en courbes\n- [ ] Déplacement et zoom à la souris et au doigt\n- [ ] 60 fps sur une carte de 1 500 hex"
+    },
+    {
+      "id": "M1-10",
+      "milestone": "M1",
+      "labels": [
+        "web"
+      ],
+      "title": "[web] Boucle de jeu locale + interface ressources",
+      "body": "## Critères d'acceptation\n- [ ] Simulation `@game/core` qui tourne en local (sauvegarde navigateur pour le proto)\n- [ ] Panneau ressources (nutriments, eau, biomasse) et achats d'améliorations\n- [ ] Donner une direction de croissance : glisser (souris) ou toucher une tuile (mobile)"
+    },
+    {
+      "id": "M1-11",
+      "milestone": "M1",
+      "labels": [
+        "web"
+      ],
+      "title": "[web] Animations : pulsation et pousses",
+      "body": "## Critères d'acceptation\n- [ ] Pulsation lente qui parcourt le réseau\n- [ ] Pousse visible quand une tuile est colonisée, particules de spores sur les achats\n- [ ] `prefers-reduced-motion` respecté"
+    },
+    {
+      "id": "M2-01",
+      "milestone": "M2",
+      "labels": [
+        "server"
+      ],
+      "title": "[server] Initialiser apps/server + PostgreSQL",
+      "body": "## Critères d'acceptation\n- [ ] `apps/server` (Node + TS, ex. Fastify), importe `@game/core`\n- [ ] PostgreSQL via Docker Compose en dev, migrations versionnées\n- [ ] Tests d'intégration lancés en CI (service Postgres)"
+    },
+    {
+      "id": "M2-02",
+      "milestone": "M2",
+      "labels": [
+        "server"
+      ],
+      "title": "[server] Comptes pseudo + mot de passe",
+      "body": "## Critères d'acceptation\n- [ ] Inscription / connexion par pseudo unique + mot de passe (argon2)\n- [ ] Sessions (cookie httpOnly), déconnexion\n- [ ] Limitation des tentatives de connexion\n- [ ] Tests"
+    },
+    {
+      "id": "M2-03",
+      "milestone": "M2",
+      "labels": [
+        "server"
+      ],
+      "title": "[server] Sauvegarde de l'état et rattrapage hors ligne",
+      "body": "## Critères d'acceptation\n- [ ] Instantané de l'état joueur en base + horodatage\n- [ ] À chaque requête, l'état est avancé côté serveur avec `advance()` de `@game/core`\n- [ ] Tests"
+    },
+    {
+      "id": "M2-04",
+      "milestone": "M2",
+      "labels": [
+        "server"
+      ],
+      "title": "[server] API d'actions validées (anti-triche)",
+      "body": "## Critères d'acceptation\n- [ ] Le client envoie des intentions (direction, achat), jamais des valeurs\n- [ ] Validation serveur : coût, adjacence, visibilité\n- [ ] Limite d'actions par minute\n- [ ] Tests, dont tentatives de triche"
+    },
+    {
+      "id": "M2-05",
+      "milestone": "M2",
+      "labels": [
+        "web"
+      ],
+      "title": "[web] Écrans inscription / connexion + client API",
+      "body": "## Critères d'acceptation\n- [ ] Formulaires pseudo + mot de passe\n- [ ] Le jeu lit son état depuis le serveur et se recale toutes les 30 s ou à chaque action"
+    },
+    {
+      "id": "M3-01",
+      "milestone": "M3",
+      "labels": [
+        "server"
+      ],
+      "title": "[server] Ligues de 30 joueurs",
+      "body": "## Critères d'acceptation\n- [ ] Une carte (graine) par ligue\n- [ ] Places réservées par ligue pour les arrivées en cours de semaine\n- [ ] Bonus de production proportionnel aux jours écoulés pour un arrivant\n- [ ] Tests"
+    },
+    {
+      "id": "M3-02",
+      "milestone": "M3",
+      "labels": [
+        "server"
+      ],
+      "title": "[server] Temps réel (WebSocket) filtré par le brouillard",
+      "body": "## Critères d'acceptation\n- [ ] Diffusion des changements de tuiles aux joueurs qui les voient\n- [ ] Aucune donnée hors champ de vision envoyée\n- [ ] Tests"
+    },
+    {
+      "id": "M3-03",
+      "milestone": "M3",
+      "labels": [
+        "core",
+        "server"
+      ],
+      "title": "[core+server] Frontières : pression, reprise, protection, zone de base",
+      "body": "## Règles (spec, à valider au proto)\n- Une tuile de bordure passe au voisin qui y envoie plus de biomasse pendant 1 h\n- Seulement les tuiles adjacentes au réseau de l'attaquant\n- Tuile reprise protégée 2 h\n- Zone de base (19 tuiles) inattaquable\n\n## Critères d'acceptation\n- [ ] Règles pures dans `@game/core`, calcul périodique par ligue côté serveur\n- [ ] Notification au propriétaire dès le début d'une pression\n- [ ] Tests"
+    },
+    {
+      "id": "M3-04",
+      "milestone": "M3",
+      "labels": [
+        "web"
+      ],
+      "title": "[web] Voisins, zones contestées et alertes de pression",
+      "body": "## Critères d'acceptation\n- [ ] Réseaux voisins affichés dans leur teinte\n- [ ] Zones sous pression visibles (corail) avec compte à rebours\n- [ ] Alerte quand une de mes tuiles est sous pression"
+    },
+    {
+      "id": "M3-05",
+      "milestone": "M3",
+      "labels": [
+        "web",
+        "server"
+      ],
+      "title": "[web+server] Émoticônes sur les tuiles",
+      "body": "## Critères d'acceptation\n- [ ] Liste fermée d'émoticônes (salut, trêve, attention, colère…), pas de texte libre\n- [ ] Posées sur ses propres tuiles, visibles par les voisins proches, expirent après quelques heures\n- [ ] Limite d'envoi"
+    },
+    {
+      "id": "M4-01",
+      "milestone": "M4",
+      "labels": [
+        "core"
+      ],
+      "title": "[core] Score hebdo et jalons",
+      "body": "## Critères d'acceptation\n- [ ] Score = somme des valeurs des tuiles + bonus de jalons\n- [ ] Jalons (100 tuiles, premier contact…) détectés de façon déterministe\n- [ ] Tests"
+    },
+    {
+      "id": "M4-02",
+      "milestone": "M4",
+      "labels": [
+        "server"
+      ],
+      "title": "[server] Job de reset du lundi (idempotent)",
+      "body": "## Critères d'acceptation\n- [ ] Gel 10 min avant 00:00 UTC\n- [ ] Scores finaux, distribution des spores, nouvelles ligues et cartes\n- [ ] Rejouable sans double effet (test qui lance le reset deux fois)\n- [ ] Tests"
+    },
+    {
+      "id": "M4-03",
+      "milestone": "M4",
+      "labels": [
+        "core",
+        "server"
+      ],
+      "title": "[core+server] Spores et arbre de mutations",
+      "body": "## Critères d'acceptation\n- [ ] 3 branches (Absorption, Croissance, Symbiose), achats avec les spores\n- [ ] Bonus de production total plafonné (+50 %)\n- [ ] Mutations conservées au reset\n- [ ] Tests"
+    },
+    {
+      "id": "M4-04",
+      "milestone": "M4",
+      "labels": [
+        "web"
+      ],
+      "title": "[web] Classement, fin de semaine et boutique de mutations",
+      "body": "## Critères d'acceptation\n- [ ] Classement de la ligue en direct\n- [ ] Écran de fin de semaine (rang, spores gagnées)\n- [ ] Écran d'achat des mutations"
+    },
+    {
+      "id": "M4-05",
+      "milestone": "M4",
+      "labels": [
+        "ops",
+        "humain"
+      ],
+      "title": "[ops] Déploiement OVH (staging + prod)",
+      "body": "## Critères d'acceptation\n- [ ] Docker Compose : serveur, PostgreSQL, proxy HTTPS\n- [ ] `scripts/deploy.sh` par SSH (à faire par un humain : fichier protégé)\n- [ ] Sauvegardes quotidiennes de la base\n- [ ] Staging sur dev, prod sur main"
+    },
+    {
+      "id": "M5-01",
+      "milestone": "M5",
+      "labels": [
+        "web"
+      ],
+      "title": "[web] Ergonomie mobile",
+      "body": "## Critères d'acceptation\n- [ ] Panneaux qui glissent depuis le bas\n- [ ] Gestes tactiles confortables sur la carte\n- [ ] Testé sur un téléphone réel"
+    },
+    {
+      "id": "M5-02",
+      "milestone": "M5",
+      "labels": [
+        "core",
+        "server"
+      ],
+      "title": "[core+server] Mutateurs hebdo",
+      "body": "## Critères d'acceptation\n- [ ] 5 mutateurs de la spec (Sécheresse, Pluie de spores, Forêt dense, Nuit longue, Arbre unique)\n- [ ] Tirage déterministe par semaine, annoncé au lundi\n- [ ] Tests"
+    },
+    {
+      "id": "M5-03",
+      "milestone": "M5",
+      "labels": [
+        "server"
+      ],
+      "title": "[server] Paliers de ligue, montées et descentes",
+      "body": "## Critères d'acceptation\n- [ ] 5 paliers (Spore → Arbre-mère)\n- [ ] Top 5 monte, 5 derniers descendent, inactif = descente\n- [ ] Tests"
+    },
+    {
+      "id": "M5-04",
+      "milestone": "M5",
+      "labels": [
+        "core",
+        "server"
+      ],
+      "title": "[core+server] Arbres-mères",
+      "body": "## Critères d'acceptation\n- [ ] 1 à 3 par carte, au centre\n- [ ] Production partagée selon la présence autour, bonus aux premiers arrivés\n- [ ] Tests"
+    },
+    {
+      "id": "M5-05",
+      "milestone": "M5",
+      "labels": [
+        "web"
+      ],
+      "title": "[web] Son d'ambiance",
+      "body": "## Critères d'acceptation\n- [ ] Ambiance forêt de nuit, sons de ramification\n- [ ] Coupé par défaut sur mobile, réglage de volume"
+    }
+  ]
+}

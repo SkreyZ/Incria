@@ -7,7 +7,7 @@
       "Bash(git push origin HEAD:dev*)",
       "Bash(git push --force*)",
       "Bash(git push -f*)",
-      "Bash(gh pr merge*)",
+      "Bash(gh pr merge*--admin*)",
       "Bash(gh workflow run*)",
       "Bash(gh release*)",
       "Bash(./scripts/deploy.sh*)",
@@ -19,13 +19,19 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.mjs\"" }
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.mjs\""
+          }
         ]
       },
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
-          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.mjs\"" }
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.mjs\""
+          }
         ]
       }
     ]
