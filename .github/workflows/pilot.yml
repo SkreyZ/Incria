@@ -1,0 +1,140 @@
+# Pilote : enchaîne les issues de la roadmap avec des agents Claude, une à la fois.
+#
+#  1. choisit la plus ancienne issue ouverte du plus ancien jalon ouvert (hors label "humain") ;
+#  2. lance un agent qui code sur une branche claude/issue-<n>-…, teste, ouvre la PR vers dev
+#     et active l'auto-merge : GitHub merge tout seul quand la CI est verte ;
+#  3. le merge dans dev relance le pilote → issue suivante.
+#
+# Arrêts volontaires :
+#  - fin d'un jalon : le pilote attend que VOUS fermiez le jalon (après avoir mergé la PR dev → main) ;
+#  - issue marquée "humain" (question, fichier protégé, échec) : sautée, à traiter par vous ;
+#  - variable de dépôt PILOT_PAUSED=true : pause complète.
+# main n'est jamais touchée : la PR dev → main est ouverte par release-pr.yml et mergée par un humain.
+name: Pilote (agents)
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [dev]
+  issues:
+    types: [closed, unlabeled] # issue terminée, ou label "humain" retiré = relance
+  milestone:
+    types: [closed]
+  schedule:
+    - cron: "17 */2 * * *" # filet de sécurité toutes les 2 h
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pilot
+  cancel-in-progress: false
+
+jobs:
+  pick:
+    name: Choisir la prochaine issue
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+    outputs:
+      issue: ${{ steps.pick.outputs.issue }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PAUSED: ${{ vars.PILOT_PAUSED }}
+        run: |
+          set -euo pipefail
+          if [ "${PAUSED:-}" = "true" ]; then
+            echo "::notice::Pilote en pause (variable PILOT_PAUSED=true)."; exit 0
+          fi
+
+          # Un seul agent à la fois : PR d'agent ouverte ou issue en cours => on attend.
+          busy=$(gh pr list -R "$REPO" --state open --base dev --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("claude/"))] | length')
+          inprog=$(gh issue list -R "$REPO" --state open --label en-cours --json number --jq 'length')
+          if [ "$busy" != "0" ] || [ "$inprog" != "0" ]; then
+            echo "::notice::Un agent travaille déjà (PR ouverte: $busy, issue en cours: $inprog)."; exit 0
+          fi
+
+          ms=$(gh api "repos/$REPO/milestones?state=open&per_page=100" \
+            --jq 'sort_by(.number) | .[0] // empty | .title')
+          if [ -z "$ms" ]; then
+            echo "::notice::Aucun jalon ouvert : roadmap terminée."; exit 0
+          fi
+
+          issue=$(gh issue list -R "$REPO" --state open --milestone "$ms" --limit 200 --json number,labels \
+            --jq '[.[] | select(([.labels[].name] | index("humain")) | not)] | sort_by(.number) | .[0].number // empty')
+          if [ -z "$issue" ]; then
+            left=$(gh issue list -R "$REPO" --state open --milestone "$ms" --json number --jq 'length')
+            echo "::notice::« $ms » : plus rien pour les agents ($left issue(s) 'humain' restante(s)). Mergez la PR dev → main puis fermez le jalon pour lancer le suivant."
+            exit 0
+          fi
+
+          gh issue edit "$issue" -R "$REPO" --add-label en-cours
+          echo "issue=$issue" >> "$GITHUB_OUTPUT"
+          echo "::notice::Issue #$issue confiée à un agent ($ms)."
+
+  agent:
+    name: "Agent : issue #${{ needs.pick.outputs.issue }}"
+    needs: pick
+    if: needs.pick.outputs.issue != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
+      id-token: write
+    env:
+      ISSUE: ${{ needs.pick.outputs.issue }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          settings: .claude/settings.json
+          prompt: |
+            Tu es un agent développeur du jeu Mycelium (dépôt ${{ github.repository }}).
+            Lis CLAUDE.md et respecte-le strictement. Ta tâche : l'issue #${{ env.ISSUE }}, et elle seule.
+
+            1. Lis l'issue : `gh issue view ${{ env.ISSUE }} --comments`. La spec du jeu est dans docs/.
+            2. Crée ta branche depuis dev : `git checkout -b claude/issue-${{ env.ISSUE }}-<sujet-court>`.
+            3. Implémente avec des tests vitest à côté du code. Aucun test existant ne doit casser
+               (tests de non-régression) ; ne modifie pas une empreinte de non-régression sans le justifier.
+            4. Vérifie : `npm run lint && npm run typecheck && npm test && npm run build`. Tout doit être vert.
+            5. Commits Conventional Commits, puis `git push -u origin HEAD`.
+            6. Ouvre la PR : `gh pr create --base dev --title "<type>: <résumé> (#${{ env.ISSUE }})" --body "..."`
+               avec « Closes #${{ env.ISSUE }} », un résumé et la liste des tests ajoutés.
+            7. Active l'auto-merge : `gh pr merge <numéro de la PR> --auto --squash --delete-branch`.
+               GitHub mergera tout seul dans dev quand la CI sera verte. Ne merge jamais vers main.
+            8. Retire le label : `gh issue edit ${{ env.ISSUE }} --remove-label en-cours`.
+
+            Si l'issue est ambiguë, trop grosse, ou exige de modifier un fichier protégé (.claude/,
+            workflows de déploiement, CODEOWNERS, scripts/deploy.sh) : ne code pas. Commente l'issue
+            (`gh issue comment`) avec tes questions ou ta proposition de découpage, puis
+            `gh issue edit ${{ env.ISSUE }} --add-label humain --remove-label en-cours`.
+          claude_args: |
+            --max-turns 150
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(npm run *),Bash(npm ci),Bash(npm install *),Bash(npm test*),Bash(npx vitest *),Bash(npx tsc *),Bash(git status*),Bash(git diff*),Bash(git log*),Bash(git add *),Bash(git commit *),Bash(git checkout -b claude/*),Bash(git push*),Bash(gh pr create *),Bash(gh pr view *),Bash(gh pr checks *),Bash(gh pr merge *),Bash(gh issue view *),Bash(gh issue comment *),Bash(gh issue edit *),Bash(ls*),Bash(cat *)"
+            --disallowedTools "Bash(gh pr merge * --admin*),Bash(gh workflow run*),Bash(gh release*),Bash(git push --force*),Bash(git push -f*)"
+
+      - name: En cas d'échec, rendre la main à un humain
+        if: failure() || cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue edit "$ISSUE" -R "${{ github.repository }}" --add-label humain --remove-label en-cours || true
+          gh issue comment "$ISSUE" -R "${{ github.repository }}" \
+            --body "🤖 L'agent n'a pas pu terminer cette issue ([logs]($RUN_URL)). Label \`humain\` ajouté : elle est sautée par le pilote. Retirez le label pour la relancer." || true

@@ -1,6 +1,7 @@
 # Agent Claude "à la demande" :
 #  - mentionner @claude dans une issue / PR / review ;
-#  - ou poser le label "claude" sur une issue → Claude implémente et ouvre une PR vers dev.
+#  - ou poser le label "claude" sur une issue → Claude implémente, ouvre une PR vers dev et active l'auto-merge.
+# Pour enchaîner automatiquement toute la roadmap, voir pilot.yml.
 # Seuls les utilisateurs avec droit d'écriture sur le repo peuvent déclencher l'agent.
 name: Claude agent
 
@@ -41,7 +42,6 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}  # alternative (abonnement Pro/Max)
           base_branch: dev            # toutes les branches de l'agent partent de dev
           branch_prefix: claude/
           label_trigger: claude
@@ -50,5 +50,5 @@ jobs:
             actions: read
           claude_args: |
             --max-turns 80
-            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(npm run *),Bash(npm ci),Bash(npm install *),Bash(npx vitest *),Bash(npx tsc *),Bash(git status*),Bash(git diff*),Bash(git log*),Bash(git add *),Bash(git commit *),Bash(git checkout -b claude/*),Bash(git push*),Bash(gh pr create *),Bash(gh pr view *),Bash(gh pr diff *),Bash(gh issue view *)"
-            --disallowedTools "Bash(gh pr merge*),Bash(gh workflow run*),Bash(gh release*),Bash(git push --force*),Bash(git push -f*)"
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(npm run *),Bash(npm ci),Bash(npm install *),Bash(npx vitest *),Bash(npx tsc *),Bash(git status*),Bash(git diff*),Bash(git log*),Bash(git add *),Bash(git commit *),Bash(git checkout -b claude/*),Bash(git push*),Bash(gh pr create *),Bash(gh pr view *),Bash(gh pr diff *),Bash(gh pr checks *),Bash(gh pr merge *),Bash(gh issue view *),Bash(gh issue comment *)"
+            --disallowedTools "Bash(gh pr merge * --admin*),Bash(gh workflow run*),Bash(gh release*),Bash(git push --force*),Bash(git push -f*)"

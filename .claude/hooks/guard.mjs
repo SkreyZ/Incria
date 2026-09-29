@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Garde-fou PreToolUse pour l'agent Claude.
-// Bloque (exit 2) : push vers main/dev, force-push, merge de PR, déclenchement
-// de déploiement, et modification des fichiers qui définissent ces garde-fous.
+// Bloque (exit 2) : push vers main/dev, force-push, merge d'une PR ailleurs que vers dev,
+// PR vers main qui ne vient pas de dev, déclenchement de déploiement, et modification des fichiers qui définissent ces garde-fous.
 // Reçoit sur stdin le JSON de l'appel d'outil (tool_name, tool_input).
 import { execFileSync } from "node:child_process";
 import path from "node:path";
@@ -13,7 +13,7 @@ export const PROTECTED_BRANCHES = ["main", "master", "dev"];
 export const PROTECTED_PATHS = [
   /^\.claude\/settings(\.local)?\.json$/,
   /^\.claude\/hooks\//,
-  /^\.github\/workflows\/(deploy-prod|deploy-staging|guard-main|release-pr)\.yml$/,
+  /^\.github\/workflows\/(deploy-prod|deploy-staging|guard-main|release-pr|pilot|claude[\w-]*)\.yml$/,
   /^\.github\/CODEOWNERS$/,
   /^scripts\/(deploy\.sh|setup-github\.sh|check-reset-freeze\.mjs)$/,
 ];
@@ -47,7 +47,38 @@ function tokens(seg) {
 const norm = (ref) => ref.replace(/^\+/, "").replace(/^refs\/heads\//, "");
 
 /** Renvoie un message d'erreur si la commande est interdite, sinon null. */
-export function checkCommand(cmd, branch) {
+/** Valeur d'une option (`--base dev` ou `--base=dev`). */
+function optValue(t, names) {
+  for (let i = 0; i < t.length; i++) {
+    if (names.includes(t[i])) return t[i + 1];
+    for (const n of names) if (n.startsWith("--") && t[i].startsWith(n + "=")) return t[i].slice(n.length + 1);
+  }
+  return undefined;
+}
+
+// Options de `gh pr merge` qui prennent une valeur.
+const MERGE_VALUE_OPTS = new Set(["-t", "--subject", "-b", "--body", "-F", "--body-file", "--match-head-commit", "-A", "--author-email", "-R", "--repo"]);
+
+/** PR visée par `gh pr merge` (numéro, URL ou branche), ou undefined = PR de la branche courante. */
+function mergeTarget(args) {
+  for (let i = 0; i < args.length; i++) {
+    if (MERGE_VALUE_OPTS.has(args[i])) { i++; continue; }
+    if (!args[i].startsWith("-")) return args[i];
+  }
+  return undefined;
+}
+
+/** Branche cible (base) d'une PR, via gh. null si impossible à déterminer. */
+export function defaultPrBase(target) {
+  try {
+    const args = ["pr", "view", ...(target ? [target] : []), "--json", "baseRefName", "--jq", ".baseRefName"];
+    return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+export function checkCommand(cmd, branch, resolvePrBase = defaultPrBase) {
   for (const seg of segments(cmd)) {
     let t = tokens(seg);
     // retirer préfixes type "env X=1", "sudo", variables d'env
@@ -97,12 +128,21 @@ export function checkCommand(cmd, branch) {
 
     if (t[0] === "gh") {
       const [a, b] = [t[1], t[2]];
-      if (a === "pr" && b === "merge") return "Merge de PR interdit : les merges sont faits par un humain.";
+      if (a === "pr" && b === "merge") {
+        if (t.includes("--admin")) return "gh pr merge --admin interdit : on ne contourne pas les protections de branche.";
+        const target = mergeTarget(t.slice(3));
+        const base = resolvePrBase(target);
+        if (base === null) return "Impossible de vérifier la branche cible de la PR : merge refusé.";
+        if (base !== "dev") return `Merge vers '${base}' interdit : l'agent ne merge que vers dev. main est mergée par un humain.`;
+      }
       if (a === "pr" && b === "create") {
-        const bi = t.findIndex((x) => x === "--base" || x === "-B");
-        const base = bi >= 0 ? t[bi + 1] : (t.find((x) => x.startsWith("--base="))?.split("=")[1]);
-        if (base && base !== "dev") return `PR vers '${base}' interdite : l'agent ouvre ses PR vers dev uniquement.`;
-        if (!base) return "Précise --base dev pour gh pr create.";
+        const base = optValue(t, ["--base", "-B"]);
+        const head = optValue(t, ["--head", "-H"]);
+        if (!base) return "Précise --base dev (ou --base main --head dev pour la PR de release) pour gh pr create.";
+        if (base === "main" && head !== "dev") {
+          return "Une PR vers main doit venir de dev : gh pr create --base main --head dev.";
+        }
+        if (base !== "dev" && base !== "main") return `PR vers '${base}' interdite.`;
       }
       if (a === "workflow" && b === "run") return "Déclencher un workflow est interdit pour l'agent.";
       if (a === "release") return "Les releases sont gérées par des humains.";

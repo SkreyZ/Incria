@@ -5,6 +5,8 @@
 #   REVIEWER=<login>      reviewer obligatoire pour la prod (défaut : vous)
 #   DEV_APPROVALS=1       approbations requises pour merger dans dev
 #   MAIN_APPROVALS=1      approbations requises pour merger dans main
+#                         (0 = dev solo : on ne peut pas approuver sa propre PR ; le verrou humain
+#                          reste le merge manuel + l'approbation du déploiement production)
 set -euo pipefail
 
 REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
@@ -13,6 +15,7 @@ REVIEWER=${REVIEWER:-$ME}
 REVIEWER_ID=$(gh api "users/$REVIEWER" --jq .id)
 DEV_APPROVALS=${DEV_APPROVALS:-1}
 MAIN_APPROVALS=${MAIN_APPROVALS:-1}
+if [ "$MAIN_APPROVALS" -gt 0 ]; then CODE_OWNER_REVIEW=true; else CODE_OWNER_REVIEW=false; fi
 
 CI_CHECK="Lint · Typecheck · Test · Build"           # job de ci.yml (PR)
 STAGING_CI_CHECK="ci / Lint · Typecheck · Test · Build" # même job appelé par deploy-staging.yml
@@ -75,7 +78,7 @@ protect main "$(cat <<JSON
   "enforce_admins": true,
   "required_pull_request_reviews": {
     "required_approving_review_count": $MAIN_APPROVALS,
-    "require_code_owner_reviews": true,
+    "require_code_owner_reviews": $CODE_OWNER_REVIEW,
     "dismiss_stale_reviews": true
   },
   "restrictions": null,
@@ -85,7 +88,7 @@ protect main "$(cat <<JSON
 }
 JSON
 )"
-echo "  main protégée (PR depuis dev + checks staging + code owner, admins inclus)"
+echo "  main protégée (PR depuis dev + checks staging + $MAIN_APPROVALS approbation(s), admins inclus)"
 
 # 6. Environnements
 gh api -X PUT "repos/$REPO/environments/staging" --input - >/dev/null <<JSON

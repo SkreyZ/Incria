@@ -16,8 +16,8 @@
 
 | Qui | dev | main / prod |
 |---|---|---|
-| Agent Claude | ouvre des PR vers dev, jamais de merge | ❌ aucun accès (ni push, ni merge, ni déploiement) |
-| Humain | relit + merge les PR vers dev | merge la PR de release, puis approuve le déploiement |
+| Agent Claude | une branche par feature, PR vers dev, merge (squash) quand la CI est verte | ouvre la PR dev → main, ❌ jamais de merge ni de déploiement |
+| Humain | peut relire les PR vers dev | merge la PR dev → main, puis approuve le déploiement |
 
 ### 4 verrous indépendants
 
@@ -28,8 +28,9 @@
 3. **`deploy-prod.yml`** refuse de déployer un code dont l'arbre git n'a jamais été déployé avec succès en staging,
    et refuse de déployer ±60 min autour du reset hebdo (lundi 00:00 UTC).
 4. **Côté agent** : `CLAUDE.md` (règles), `--allowedTools`/`--disallowedTools` dans chaque workflow, et le hook
-   `.claude/hooks/guard.mjs` qui bloque : push vers main/dev, commit sur main/dev, force-push, `gh pr merge`,
-   PR vers autre chose que dev, `gh workflow run`, `deploy.sh`, et toute modification des fichiers de garde-fous.
+   `.claude/hooks/guard.mjs` qui bloque : push vers main/dev, commit sur main/dev, force-push, merge d'une PR
+   ailleurs que vers dev (et `--admin`), PR vers main qui ne vient pas de dev, `gh workflow run`, `deploy.sh`,
+   et toute modification des fichiers de garde-fous.
    Le hook s'applique aussi si vous utilisez Claude Code en local sur ce repo. Il est testé (`.claude/hooks/guard.test.mjs`).
 
 ## Les workflows
@@ -45,6 +46,26 @@
 | `claude-review.yml` | chaque PR (non draft) | **review** : bugs, anti-triche, reset hebdo, tests, équilibrage |
 | `claude-ci-fix.yml` | CI rouge | **répare** : sur branche `claude/*` (ou label `ci-autofix`) pousse le correctif, 3 essais max ; sur dev ouvre une PR de correctif |
 | `claude-scheduled.yml` | lundi 01:07 UTC, mercredi 05:23 UTC | **tâches planifiées** : rapport hebdo post-reset (issue), mise à jour des dépendances (PR vers dev) |
+| `pilot.yml` | merge dans dev, issue fermée, toutes les 2 h | **pilote** : confie la prochaine issue à un agent (code → PR → auto-merge) |
+
+## Pilote : les agents enchaînent la roadmap
+
+`pilot.yml` confie les issues aux agents, **une à la fois**, dans l'ordre des jalons :
+
+```
+PR mergée dans dev ─▶ pilote : plus ancienne issue ouverte du jalon en cours (hors « humain »)
+   ─▶ label « en-cours » ─▶ agent : branche claude/issue-<n>, code + tests, PR vers dev, auto-merge
+   ─▶ CI verte ─▶ merge automatique dans dev ─▶ staging ─▶ pilote : issue suivante…
+```
+
+- **CI rouge** : `claude-ci-fix.yml` corrige la branche (3 essais), puis l'auto-merge reprend.
+- **Issue floue, fichier protégé ou échec** : label `humain`, l'issue est sautée. Retirer le label la relance.
+- **Fin de jalon** : le pilote s'arrête. Vous mergez la PR `dev → main`, approuvez le déploiement, puis
+  **fermez le jalon** sur GitHub : le pilote attaque le jalon suivant.
+- **Pause** : `gh variable set PILOT_PAUSED --body true` (reprise : `--body false`).
+- **Coût** : chaque issue consomme du quota de l'abonnement Claude (agent + review + éventuelle réparation).
+
+Démarrage (une seule fois) : `bash scripts/bootstrap-agents.sh`.
 
 ## Mise en place (≈ 15 min)
 
