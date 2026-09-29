@@ -38,7 +38,7 @@ jobs:
       - uses: ./.github/actions/setup
       - uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           settings: .claude/settings.json
           prompt: |
             Rapport hebdomadaire (le reset de saison vient d'avoir lieu). Lis CLAUDE.md d'abord.
@@ -70,7 +70,7 @@ jobs:
       - uses: ./.github/actions/setup
       - uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           settings: .claude/settings.json
           prompt: |
             Mise à jour hebdomadaire des dépendances. Lis CLAUDE.md d'abord.
