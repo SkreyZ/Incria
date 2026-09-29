@@ -1,0 +1,31 @@
+# CI — lint, typecheck, tests, build.
+# Déclenché sur chaque PR vers dev/main, à la demande (utilisé par les workflows agent)
+# et réutilisé par deploy-staging.yml / deploy-prod.yml (workflow_call).
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow_ref }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # ⚠️ Ce nom est utilisé comme "required status check" (scripts/setup-github.sh).
+    name: Lint · Typecheck · Test · Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

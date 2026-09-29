@@ -1,0 +1,54 @@
+# Quand staging est vert, ouvre (ou met à jour) la PR de release dev → main.
+# Personne ne merge automatiquement : un humain relit et merge.
+name: Release PR (dev → main)
+
+on:
+  workflow_run:
+    workflows: ["Deploy staging"]
+    types: [completed]
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: write
+
+jobs:
+  open-release-pr:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Créer / mettre à jour la PR de release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch origin main dev
+          if [ "$(git rev-list --count origin/main..origin/dev)" = "0" ]; then
+            echo "dev n'a rien de nouveau par rapport à main."; exit 0
+          fi
+          {
+            echo "## Release dev → main"
+            echo
+            echo "Staging déployé et testé ✅ ($(date -u +%Y-%m-%dT%H:%MZ))"
+            echo
+            echo "### Commits inclus"
+            git log --no-merges --pretty='- %s (%h, %an)' origin/main..origin/dev
+            echo
+            echo "---"
+            echo "⚠️ Merge **manuel uniquement**. Le déploiement prod demandera encore une approbation (environnement \`production\`)."
+          } > body.md
+          existing=$(gh pr list --base main --head dev --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body-file body.md
+          else
+            gh pr create --base main --head dev --title "Release $(date -u +%Y-%m-%d)" --body-file body.md --label release || \
+            gh pr create --base main --head dev --title "Release $(date -u +%Y-%m-%d)" --body-file body.md
+          fi
+          # Une PR créée avec GITHUB_TOKEN ne déclenche pas les workflows pull_request :
+          # on lance le garde-fou explicitement sur dev (check "Guard: source = dev").
+          gh workflow run guard-main.yml --ref dev

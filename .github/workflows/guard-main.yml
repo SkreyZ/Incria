@@ -1,0 +1,38 @@
+# Garde-fou : main n'accepte QUE des PR venant de dev.
+# Check exigé sur main par scripts/setup-github.sh.
+name: Guard main
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: "Guard: source = dev"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vérifier la branche source
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            if [ "$HEAD_REF" != "dev" ] || [ "$HEAD_REPO" != "$REPO" ]; then
+              echo "::error::Les PR vers main doivent venir de 'dev' (reçu: $HEAD_REPO:$HEAD_REF). Mergez d'abord dans dev."
+              exit 1
+            fi
+          else
+            if [ "$REF" != "refs/heads/dev" ]; then
+              echo "::error::Ce garde-fou ne peut être validé manuellement que sur dev (reçu: $REF)."
+              exit 1
+            fi
+          fi
+          echo "OK : source = dev"

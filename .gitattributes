@@ -1,0 +1,4 @@
+# Fins de ligne LF dans le dépôt (les scripts tournent sur Linux en CI)
+* text=auto eol=lf
+*.sh text eol=lf
+*.mjs text eol=lf

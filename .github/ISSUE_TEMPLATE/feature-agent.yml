@@ -1,0 +1,35 @@
+name: Feature pour l'agent Claude
+description: Décrire une feature que l'agent implémentera (PR vers dev)
+labels: ["claude"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Le label **claude** déclenche l'agent : il crée une branche `claude/…` depuis `dev`,
+        implémente, teste, et ouvre une PR vers `dev`. Rien n'arrive en prod sans vous.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Objectif
+      description: Ce que le joueur doit pouvoir faire / ce qui doit changer.
+    validations:
+      required: true
+  - type: textarea
+    id: rules
+    attributes:
+      label: Règles de jeu / formules
+      description: Coûts, production, conditions, interaction avec le reset hebdo et la méta-progression.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critères d'acceptation
+      description: Liste vérifiable (idéalement transformable en tests).
+      placeholder: |
+        - [ ] …
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Périmètre
+      options: [core (logique), server, web, plusieurs]

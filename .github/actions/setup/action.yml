@@ -1,0 +1,14 @@
+name: Setup Node + dépendances
+description: Installe Node et les dépendances npm (npm ci si lockfile, sinon npm install)
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: "**/package.json"
+    - name: Install
+      shell: bash
+      run: |
+        if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi

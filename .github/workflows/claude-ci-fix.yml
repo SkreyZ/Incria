@@ -1,0 +1,114 @@
+# Réparation automatique de la CI.
+#  - CI rouge sur une PR dont la branche commence par claude/ (ou PR avec le label "ci-autofix")
+#    → Claude corrige et pousse sur CETTE branche (max 3 tentatives).
+#  - CI rouge sur dev → Claude crée une branche claude/fix-ci-… depuis dev et ouvre une PR vers dev.
+# Jamais de push sur dev ni main.
+name: Claude CI fix
+
+on:
+  workflow_run:
+    workflows: ["CI", "Deploy staging"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      mode: ${{ steps.decide.outputs.mode }}
+      pr: ${{ steps.decide.outputs.pr }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+        run: |
+          set -euo pipefail
+          mode=skip; pr=""
+          if [ "$BRANCH" = "main" ]; then
+            mode=skip
+          elif [ "$BRANCH" = "dev" ]; then
+            mode=dev
+          elif [ "$WORKFLOW" = "CI" ]; then
+            pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+            labels=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json labels --jq '.[0].labels[].name' 2>/dev/null || true)
+            if [ -n "$pr" ] && { [[ "$BRANCH" == claude/* ]] || grep -qx 'ci-autofix' <<<"$labels"; }; then
+              mode=branch
+            fi
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+          echo "Décision: $mode (branche $BRANCH, PR ${pr:-none})"
+
+  fix:
+    needs: gate
+    if: needs.gate.outputs.mode != 'skip'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: claude-ci-fix-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 0
+
+      - name: Limiter les tentatives (anti-boucle)
+        if: needs.gate.outputs.mode == 'branch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.gate.outputs.pr }}
+        run: |
+          git fetch origin dev
+          n=$(git rev-list --count --grep='\[ci-fix\]' origin/dev..HEAD)
+          echo "Tentatives précédentes : $n"
+          if [ "$n" -ge 3 ]; then
+            gh pr comment "$PR" --body "🤖 La CI est toujours rouge après 3 tentatives de correction automatique. Intervention humaine requise."
+            exit 1
+          fi
+
+      - name: Récupérer les logs d'échec
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          gh run view "$RUN_ID" --log-failed > /tmp/ci-failure.log 2>&1 || true
+          tail -c 60000 /tmp/ci-failure.log > ci-failure.log
+          echo "ci-failure.log" >> .git/info/exclude
+
+      - uses: ./.github/actions/setup
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          settings: .claude/settings.json
+          prompt: |
+            La CI a échoué (workflow "${{ github.event.workflow_run.name }}", run ${{ github.event.workflow_run.html_url }})
+            sur la branche `${{ github.event.workflow_run.head_branch }}`.
+            Les logs d'échec sont dans ./ci-failure.log. Lis CLAUDE.md d'abord.
+
+            Objectif : corriger la cause racine (pas désactiver/skipper un test, pas baisser le lint).
+            Reproduis localement avec `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`.
+
+            ${{ needs.gate.outputs.mode == 'branch' && format('Mode PR #{0} : committe sur la branche courante avec un message commençant par "[ci-fix]", puis `git push origin HEAD`. Commente ensuite la PR (gh pr comment {0}) en expliquant la cause et le correctif.', needs.gate.outputs.pr) || 'Mode dev : NE POUSSE PAS sur dev. Crée une branche `claude/fix-ci-${{ github.run_id }}` depuis la branche courante, committe avec un message commençant par "[ci-fix]", pousse-la (`git push -u origin HEAD`), puis ouvre une PR avec `gh pr create --base dev` expliquant la cause et le correctif.' }}
+
+            Si l'échec vient de l'infrastructure (réseau, secret manquant, service externe, tests e2e contre staging indisponible),
+            ne modifie pas le code : explique-le dans un commentaire (PR) ou crée une issue (gh issue create --label ci).
+          claude_args: |
+            --max-turns 60
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(npm run *),Bash(npm ci),Bash(npm install *),Bash(npx vitest *),Bash(npx tsc *),Bash(git status*),Bash(git diff*),Bash(git log*),Bash(git add *),Bash(git commit *),Bash(git checkout -b claude/*),Bash(git push*),Bash(gh pr create *),Bash(gh pr comment *),Bash(gh issue create *)"
+            --disallowedTools "Bash(gh pr merge*),Bash(gh workflow run*),Bash(git push --force*),Bash(git push -f*)"

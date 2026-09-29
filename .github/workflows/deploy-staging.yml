@@ -1,0 +1,48 @@
+# Chaque merge sur dev → CI → déploiement staging → tests de fumée.
+# Les checks produits ici ("ci / …" et "Smoke tests staging") sont EXIGÉS
+# pour merger dev → main : c'est la preuve que le commit a été testé en dev.
+name: Deploy staging
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy staging
+    needs: ci
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: npm run build
+      - name: Deploy
+        run: ./scripts/deploy.sh staging
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+
+  smoke:
+    name: Smoke tests staging
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: E2E / smoke contre staging
+        run: npm run test:e2e
+        env:
+          BASE_URL: ${{ vars.STAGING_URL }}

@@ -1,0 +1,68 @@
+# Déploiement production. Triple verrou :
+#  1. le code sur main doit être IDENTIQUE (même arbre git) à un commit déployé avec succès en staging ;
+#  2. pas de déploiement dans la fenêtre du reset hebdomadaire ;
+#  3. l'environnement GitHub "production" exige l'approbation manuelle d'un humain.
+# L'agent Claude n'a aucun moyen de déclencher ou d'approuver ce workflow.
+name: Deploy production
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  deployments: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Vérifier que le code a été testé en staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Le commit de main correspond à un déploiement staging réussi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          target_tree=$(git rev-parse 'HEAD^{tree}')
+          gh api "repos/$REPO/deployments?environment=staging&per_page=50" --jq '.[] | "\(.id) \(.sha)"' > deps.txt
+          while read -r id sha; do
+            state=$(gh api "repos/$REPO/deployments/$id/statuses?per_page=1" --jq '.[0].state // ""')
+            [ "$state" = "success" ] || continue
+            tree=$(git rev-parse "$sha^{tree}" 2>/dev/null || true)
+            if [ "$tree" = "$target_tree" ]; then
+              echo "✅ Code identique au commit $sha déployé en staging."
+              exit 0
+            fi
+          done < deps.txt
+          echo "::error::Ce code n'a jamais été déployé avec succès en staging. Passez par dev."
+          exit 1
+      - name: Hors fenêtre du reset hebdomadaire
+        run: node scripts/check-reset-freeze.mjs
+
+  ci:
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy production
+    needs: [verify, ci]
+    runs-on: ubuntu-latest
+    environment:
+      name: production   # ← reviewers obligatoires configurés par scripts/setup-github.sh
+      url: ${{ vars.PROD_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: npm run build
+      - name: Deploy
+        run: ./scripts/deploy.sh production
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}

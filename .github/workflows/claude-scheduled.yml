@@ -1,0 +1,88 @@
+# Tâches planifiées de l'agent (heures en UTC).
+#  - Lundi 01:07 UTC (juste après le reset hebdo) : rapport de santé de la semaine → issue.
+#  - Mercredi 05:23 UTC : mise à jour des dépendances (patch/minor) → PR vers dev.
+# Lancement manuel possible via "Run workflow".
+name: Claude scheduled
+
+on:
+  schedule:
+    - cron: "7 1 * * 1"
+    - cron: "23 5 * * 3"
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Tâche à lancer
+        type: choice
+        options: [weekly-report, deps-update]
+        default: weekly-report
+
+permissions:
+  contents: read
+
+jobs:
+  weekly-report:
+    if: github.event.schedule == '7 1 * * 1' || inputs.task == 'weekly-report'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          settings: .claude/settings.json
+          prompt: |
+            Rapport hebdomadaire (le reset de saison vient d'avoir lieu). Lis CLAUDE.md d'abord.
+            Produis UNE issue GitHub (gh issue create --title "Rapport hebdo <date>" --label rapport) en français avec :
+            - ce qui a été mergé sur dev cette semaine, et ce qui est sur dev mais pas encore sur main (git log origin/main..origin/dev) ;
+            - l'état de la CI sur dev (gh run list --branch dev --limit 10) ;
+            - les PR ouvertes en attente de review ;
+            - la santé du code : `npm test`, TODO/FIXME récents, logique de reset/saison non couverte par des tests ;
+            - 3 suggestions concrètes max pour la semaine (chacune formulable en issue avec le label "claude").
+            Ne modifie aucun fichier. Ne pousse rien.
+          claude_args: |
+            --max-turns 40
+            --allowedTools "Read,Glob,Grep,Bash(npm test*),Bash(npm run *),Bash(git log*),Bash(git diff*),Bash(git fetch*),Bash(gh run list *),Bash(gh pr list *),Bash(gh issue list *),Bash(gh issue create *)"
+            --disallowedTools "Edit,Write,Bash(git push*),Bash(git commit*)"
+
+  deps-update:
+    if: github.event.schedule == '23 5 * * 3' || inputs.task == 'deps-update'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          settings: .claude/settings.json
+          prompt: |
+            Mise à jour hebdomadaire des dépendances. Lis CLAUDE.md d'abord.
+            1. `npm outdated` ; mets à jour UNIQUEMENT les versions patch/minor (pas de major).
+            2. Lance `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`. Corrige si besoin.
+               Si une mise à jour casse quelque chose sans correctif simple, retire-la.
+            3. S'il y a des changements : crée la branche `claude/deps-${{ github.run_id }}`, committe
+               ("chore(deps): mises à jour hebdo"), pousse-la, puis `gh pr create --base dev` avec la liste
+               des paquets mis à jour et les majors disponibles non appliquées.
+            4. S'il n'y a rien à mettre à jour : ne crée rien.
+            Ne pousse JAMAIS sur dev ou main.
+          claude_args: |
+            --max-turns 50
+            --allowedTools "Edit,Read,Glob,Grep,Bash(npm outdated*),Bash(npm update*),Bash(npm install *),Bash(npm ci),Bash(npm run *),Bash(npm test*),Bash(git status*),Bash(git diff*),Bash(git add *),Bash(git commit *),Bash(git checkout -b claude/*),Bash(git push*),Bash(gh pr create *)"
+            --disallowedTools "Bash(gh pr merge*),Bash(gh workflow run*),Bash(git push --force*),Bash(git push -f*)"
