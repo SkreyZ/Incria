@@ -1,0 +1,14 @@
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #0e0b0a;
+  color: #e8dfd6;
+  font-family: system-ui, sans-serif;
+}
+
+#app {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+}
