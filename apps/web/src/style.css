@@ -11,4 +11,20 @@ body {
   display: grid;
   place-items: center;
   min-height: 100vh;
+  position: relative;
+  /* l'UI ne capte que ses propres éléments : le reste passe à la carte */
+  pointer-events: none;
+}
+
+#app > * {
+  pointer-events: auto;
+}
+
+/* Carte plein écran derrière l'UI. */
+#map {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
 }
