@@ -12,3 +12,26 @@ body {
   place-items: center;
   min-height: 100vh;
 }
+
+.panel {
+  max-width: 24rem;
+  padding: 1rem;
+}
+
+.res {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 1rem;
+}
+
+.res dd {
+  margin: 0;
+  text-align: right;
+}
+
+.panel button {
+  display: block;
+  width: 100%;
+  margin: 0.25rem 0;
+  padding: 0.5rem;
+}
