@@ -1,0 +1,20 @@
+# PostgreSQL de développement : `docker compose up -d db`
+# puis DATABASE_URL=postgres://game:game@localhost:5432/game (voir .env.example).
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: game
+      POSTGRES_PASSWORD: game
+      POSTGRES_DB: game
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "game"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  pgdata:
